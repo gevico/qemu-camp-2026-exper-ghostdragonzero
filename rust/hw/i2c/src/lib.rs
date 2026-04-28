@@ -88,14 +88,15 @@ impl I2CBus {
     }
 
     /// Attach a slave device to the bus.
-    pub fn attach(&mut self, _device: Box<dyn I2CSlave>) {
+    pub fn attach(&mut self, device: Box<dyn I2CSlave>) {
         // TODO: push the device onto the bus
+        self.devices.push(device);
     }
 
     /// Return the number of devices on the bus.
     pub fn device_count(&self) -> usize {
         // TODO: return actual count
-        0
+        self.devices.len()
     }
 
     /// Check if the bus is busy (a transfer is in progress).
@@ -111,10 +112,30 @@ impl I2CBus {
     /// Returns 0 on success (slave ACKed), -1 if no slave responds (NACK).
     ///
     /// This mirrors `i2c_start_transfer()` from upstream.
-    pub fn start_transfer(&mut self, _address: u8, _is_recv: bool) -> i32 {
+    pub fn start_transfer(&mut self, address: u8, is_recv: bool) -> i32 {
         // TODO: find a device matching _address, call its event()
         // with StartRecv or StartSend. If ACKed, store current_addr
         // and is_recv. Return 0 on ACK, -1 on NACK.
+        for device in &mut self.devices {
+          if device.address() == address {
+              // 确定事件类型
+              let event = if is_recv {
+                  I2CEvent::StartRecv
+              } else {
+                  I2CEvent::StartSend
+              };
+
+              // 调用设备的 event 方法
+              let ret = device.event(event);
+
+              // 如果设备 ACK（返回 0），保存当前传输状态
+              if ret == 0 {
+                  self.current_addr = Some(address);
+                  self.is_recv = is_recv;
+                  return 0; // ACK
+              }
+          }
+      }
         -1
     }
 
@@ -123,15 +144,33 @@ impl I2CBus {
     /// Mirrors `i2c_end_transfer()` from upstream.
     pub fn end_transfer(&mut self) {
         // TODO: send Finish event to the current slave, clear current_addr
+        if let Some(addr) = self.current_addr {
+          // 找到当前活跃的设备并发送 Finish 事件
+          for device in &mut self.devices {
+              if device.address() == addr {
+                  device.event(I2CEvent::Finish);
+                  break;
+              }
+          }
+          // 清除当前地址
+          self.current_addr = None;
+      }
     }
 
     /// Send a data byte from master to the current slave.
     ///
     /// Returns 0 for ACK, non-zero for NACK.
     /// Mirrors `i2c_send()` from upstream.
-    pub fn send(&mut self, _data: u8) -> i32 {
+    pub fn send(&mut self, data: u8) -> i32 {
         // TODO: call send() on the current slave
-        -1
+      if let Some(addr) = self.current_addr {
+          for device in &mut self.devices {
+              if device.address() == addr {
+                  return device.send(data);
+              }
+          }
+      }
+      -1
     }
 
     /// Receive a data byte from the current slave to master.
@@ -139,6 +178,13 @@ impl I2CBus {
     /// Mirrors `i2c_recv()` from upstream.
     pub fn recv(&mut self) -> u8 {
         // TODO: call recv() on the current slave
+        if let Some(addr) = self.current_addr {
+          for device in &mut self.devices {
+              if device.address() == addr {
+                  return device.recv();
+              }
+          }
+        }
         0xFF
     }
 
