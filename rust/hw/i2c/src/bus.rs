@@ -61,6 +61,16 @@ pub struct I2CBus {
     is_recv: bool,
 }
 
+impl std::fmt::Debug for I2CBus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("I2CBus")
+            .field("device_count", &self.devices.len())
+            .field("current_addr", &self.current_addr)
+            .field("is_recv", &self.is_recv)
+            .finish()
+    }
+}
+
 impl I2CBus {
     /// Create an empty bus with no attached devices.
     pub fn new() -> Self {

@@ -16,11 +16,14 @@
 //! - [`I2CBus`]: bus that manages slave devices and routes transfers
 
 pub mod bus;
-pub use bus::{I2CBus, I2CSlave, I2CEvent};
+pub mod device;
+pub mod register;
 
+pub use bus::{I2CBus, I2CSlave, I2CEvent};
+pub use device::{I2CController, TYPE_I2C_CONTROLLER};
+pub use register::{I2CRegs, I2CRegister, control, status};
 
 // ─── Unit tests ──────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
