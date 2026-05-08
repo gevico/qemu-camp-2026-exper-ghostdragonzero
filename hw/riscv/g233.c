@@ -44,6 +44,7 @@
 #include "hw/intc/riscv_aplic.h"
 #include "hw/intc/sifive_plic.h"
 #include "hw/misc/sifive_test.h"
+#include "hw/gpio/gevico_gpio.h"
 #include "hw/core/platform-bus.h"
 #include "chardev/char.h"
 #include "system/device_tree.h"
@@ -87,6 +88,7 @@ static const MemMapEntry virt_memmap[] = {
     [VIRT_RTC] =          {   0x101000,        0x1000 },
     [VIRT_CLINT] =        {  0x2000000,       0x10000 },
     [VIRT_ACLINT_SSWI] =  {  0x2F00000,        0x4000 },
+    [VIRT_GPIO0] =        {  0x10012000,       0x100 },
     [VIRT_PCIE_PIO] =     {  0x3000000,       0x10000 },
     [VIRT_IOMMU_SYS] =    {  0x3010000,        0x1000 },
     [VIRT_PLATFORM_BUS] = {  0x4000000,     0x2000000 },
@@ -988,6 +990,27 @@ static void create_fdt_uart(RISCVG233State *s,
     qemu_fdt_setprop_string(ms->fdt, "/aliases", "serial0", name);
 }
 
+static void create_fdt_gpio(RISCVG233State *s,
+                            uint32_t irq_mmio_phandle)
+{
+    g_autofree char *name = NULL;
+    MachineState *ms = MACHINE(s);
+
+    name = g_strdup_printf("/soc/gpio@%"HWADDR_PRIx,
+                           s->memmap[VIRT_GPIO0].base);
+    qemu_fdt_add_subnode(ms->fdt, name);
+    qemu_fdt_setprop_string(ms->fdt, name, "compatible", "gevico,gpio");
+    qemu_fdt_setprop_sized_cells(ms->fdt, name, "reg",
+                                 2, s->memmap[VIRT_GPIO0].base,
+                                 2, s->memmap[VIRT_GPIO0].size);
+    qemu_fdt_setprop_cell(ms->fdt, name, "interrupt-parent", irq_mmio_phandle);
+    qemu_fdt_setprop_cells(ms->fdt, name, "interrupts", GPIO0_IRQ);
+    qemu_fdt_setprop_cell(ms->fdt, name, "#gpio-cells", 2);
+    qemu_fdt_setprop_cell(ms->fdt, name, "gpio-controller", 1);
+    qemu_fdt_setprop_cell(ms->fdt, name, "ngpio", 32);
+    qemu_fdt_setprop_string(ms->fdt, "/aliases", "gpio0", name);
+}
+
 static void create_fdt_rtc(RISCVG233State *s,
                            uint32_t irq_mmio_phandle)
 {
@@ -1156,6 +1179,8 @@ static void finalize_fdt(RISCVG233State *s)
     create_fdt_reset(s, &phandle);
 
     create_fdt_uart(s, irq_mmio_phandle);
+
+    create_fdt_gpio(s, irq_mmio_phandle);
 
     create_fdt_rtc(s, irq_mmio_phandle);
 }
@@ -1693,6 +1718,17 @@ static void virt_machine_init(MachineState *machine)
 
     /* SiFive Test MMIO device */
     sifive_test_create(s->memmap[VIRT_TEST].base);
+
+    /* Create Gevico GPIO device */
+    DeviceState *gpio_dev;
+    SysBusDevice *gpio_sysbus;
+
+    gpio_dev = qdev_new(TYPE_GEVICO_GPIO);
+    qdev_prop_set_uint32(gpio_dev, "ngpio", 32);
+    gpio_sysbus = SYS_BUS_DEVICE(gpio_dev);
+    sysbus_realize_and_unref(gpio_sysbus, &error_fatal);
+    sysbus_mmio_map(gpio_sysbus, 0, s->memmap[VIRT_GPIO0].base);
+    sysbus_connect_irq(gpio_sysbus, 0, qdev_get_gpio_in(mmio_irqchip, GPIO0_IRQ));
 
     /* VirtIO MMIO devices */
     for (i = 0; i < VIRTIO_COUNT; i++) {

@@ -1496,6 +1496,7 @@ static void virt_machine_done(Notifier *notifier, void *data)
                                                          firmware_end_addr);
         riscv_load_kernel(machine, &boot_info, kernel_start_addr,
                           true, NULL);
+                          //加载内核
         kernel_entry = boot_info.image_low_addr;
     }
 
@@ -1529,6 +1530,7 @@ static void virt_machine_done(Notifier *notifier, void *data)
 static void virt_machine_init(MachineState *machine)
 {
     RISCVVirtState *s = RISCV_VIRT_MACHINE(machine);
+    //s 代表一个state 一个实例
     MemoryRegion *system_memory = get_system_memory();
     MemoryRegion *mask_rom = g_new(MemoryRegion, 1);
     DeviceState *mmio_irqchip, *virtio_irqchip, *pcie_irqchip;
@@ -1580,6 +1582,7 @@ static void virt_machine_init(MachineState *machine)
         object_property_set_int(OBJECT(&s->soc[i]), "num-harts",
                                 hart_count, &error_abort);
         sysbus_realize(SYS_BUS_DEVICE(&s->soc[i]), &error_fatal);
+        //cpu初始化
 
         if (virt_aclint_allowed() && s->have_aclint) {
             if (s->aia_type == VIRT_AIA_TYPE_APLIC_IMSIC) {
@@ -1680,6 +1683,7 @@ static void virt_machine_init(MachineState *machine)
                            s->memmap[VIRT_MROM].size, &error_fatal);
     memory_region_add_subregion(system_memory, s->memmap[VIRT_MROM].base,
                                 mask_rom);
+                                //初始化rom ram
 
     /*
      * Init fw_cfg. Must be done before riscv_load_fdt, otherwise the
@@ -1757,6 +1761,7 @@ static void virt_machine_init(MachineState *machine)
 static void virt_machine_instance_init(Object *obj)
 {
     RISCVVirtState *s = RISCV_VIRT_MACHINE(obj);
+    //对象真正的实例
 
     virt_flash_create(s);
 
@@ -1943,6 +1948,7 @@ static void virt_machine_class_init(ObjectClass *oc, const void *data)
     mc->get_hotplug_handler = virt_machine_get_hotplug_handler;
 
     hc->plug = virt_machine_device_plug_cb;
+    //绑定各种方法和函数
 
     machine_class_allow_dynamic_sysbus_dev(mc, TYPE_RAMFB_DEVICE);
     machine_class_allow_dynamic_sysbus_dev(mc, TYPE_UEFI_VARS_SYSBUS);
@@ -1990,6 +1996,7 @@ static void virt_machine_class_init(ObjectClass *oc, const void *data)
 
 static const TypeInfo virt_machine_typeinfo = {
     .name       = MACHINE_TYPE_NAME("virt"),
+    //zhegejiushi banzi d mingzi duiying qidong canshu li d  virt
     .parent     = TYPE_MACHINE,
     .class_init = virt_machine_class_init,
     .instance_init = virt_machine_instance_init,

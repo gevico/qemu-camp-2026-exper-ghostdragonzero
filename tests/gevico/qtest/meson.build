@@ -1,5 +1,8 @@
 qtests_riscv64 = [
     'test-board-g233',
+    'test-g233-gpio-simple',
+    'test-g233-gpio-interrupt',
+    'test-gevico-gpio',
     'test-gpio-basic',
     'test-gpio-int',
     'test-pwm-basic',
