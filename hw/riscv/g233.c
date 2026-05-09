@@ -47,6 +47,8 @@
 #include "hw/gpio/gevico_gpio.h"
 #include "hw/timer/gevico_pwm.h"
 #include "hw/watchdog/gevico_wdt.h"
+#include "hw/ssi/gevico_spi.h"
+#include "hw/ssi/ssi.h"
 #include "hw/core/platform-bus.h"
 #include "chardev/char.h"
 #include "system/device_tree.h"
@@ -93,6 +95,7 @@ static const MemMapEntry virt_memmap[] = {
     [VIRT_GPIO0] =        {  0x10012000,       0x100 },
     [VIRT_PWM0] =         {  0x10015000,       0x1000 },
     [VIRT_WDT] =          {  0x10010000,       0x1000 },
+    [VIRT_SPI] =          {  0x10018000,       0x1000 },
     [VIRT_PCIE_PIO] =     {  0x3000000,       0x10000 },
     [VIRT_IOMMU_SYS] =    {  0x3010000,        0x1000 },
     [VIRT_PLATFORM_BUS] = {  0x4000000,     0x2000000 },
@@ -1053,6 +1056,27 @@ static void create_fdt_wdt(RISCVG233State *s,
     qemu_fdt_setprop_string(ms->fdt, "/aliases", "wdt0", name);
 }
 
+static void create_fdt_spi(RISCVG233State *s,
+                           uint32_t irq_mmio_phandle)
+{
+    g_autofree char *name = NULL;
+    MachineState *ms = MACHINE(s);
+
+    name = g_strdup_printf("/soc/spi@%"HWADDR_PRIx,
+                           s->memmap[VIRT_SPI].base);
+    qemu_fdt_add_subnode(ms->fdt, name);
+    qemu_fdt_setprop_string(ms->fdt, name, "compatible", "gevico,spi");
+    qemu_fdt_setprop_sized_cells(ms->fdt, name, "reg",
+                                 2, s->memmap[VIRT_SPI].base,
+                                 2, s->memmap[VIRT_SPI].size);
+    qemu_fdt_setprop_cell(ms->fdt, name, "interrupt-parent", irq_mmio_phandle);
+    qemu_fdt_setprop_cells(ms->fdt, name, "interrupts", SPI_IRQ);
+    qemu_fdt_setprop_cell(ms->fdt, name, "#address-cells", 1);
+    qemu_fdt_setprop_cell(ms->fdt, name, "#size-cells", 0);
+    qemu_fdt_setprop_cell(ms->fdt, name, "#cs-cells", 1);
+    qemu_fdt_setprop_string(ms->fdt, "/aliases", "spi0", name);
+}
+
 static void create_fdt_rtc(RISCVG233State *s,
                            uint32_t irq_mmio_phandle)
 {
@@ -1227,6 +1251,8 @@ static void finalize_fdt(RISCVG233State *s)
     create_fdt_pwm(s, irq_mmio_phandle);
 
     create_fdt_wdt(s, irq_mmio_phandle);
+
+    create_fdt_spi(s, irq_mmio_phandle);
 
     create_fdt_rtc(s, irq_mmio_phandle);
 }
@@ -1795,6 +1821,39 @@ static void virt_machine_init(MachineState *machine)
     sysbus_realize_and_unref(wdt_sysbus, &error_fatal);
     sysbus_mmio_map(wdt_sysbus, 0, s->memmap[VIRT_WDT].base);
     sysbus_connect_irq(wdt_sysbus, 0, qdev_get_gpio_in(mmio_irqchip, WDT_IRQ));
+
+    /* Create Gevico SPI device */
+    DeviceState *spi_dev;
+    SysBusDevice *spi_sysbus;
+
+    spi_dev = qdev_new(TYPE_GEVICO_SPI);
+    spi_sysbus = SYS_BUS_DEVICE(spi_dev);
+    sysbus_realize_and_unref(spi_sysbus, &error_fatal);
+    sysbus_mmio_map(spi_sysbus, 0, s->memmap[VIRT_SPI].base);
+    sysbus_connect_irq(spi_sysbus, 0, qdev_get_gpio_in(mmio_irqchip, SPI_IRQ));
+
+    /* Create SPI flash device on CS0 */
+    SSIBus *spi_bus;
+
+    /* Get SPI bus from the SPI device */
+    spi_bus = (SSIBus *)qdev_get_child_bus(DEVICE(spi_dev), "spi");
+    g_assert(spi_bus);
+
+    /* Create flash devices connected to SPI bus */
+    /* CS0: W25X16 (2MB) */
+    DeviceState *flash0 = qdev_new("w25x16");
+    qdev_prop_set_uint8(flash0, "cs", 0);
+    ssi_realize_and_unref(flash0, spi_bus, &error_fatal);
+    /* CS1: W25X32 (4MB) */
+    DeviceState *flash1 = qdev_new("w25x32");
+    qdev_prop_set_uint8(flash1, "cs", 1);
+    ssi_realize_and_unref(flash1, spi_bus, &error_fatal);
+
+    /* Connect SPI controller CS outputs to flash device CS inputs */
+    qdev_connect_gpio_out(DEVICE(spi_dev), 0,
+                          qdev_get_gpio_in_named(flash0, SSI_GPIO_CS, 0));
+    qdev_connect_gpio_out(DEVICE(spi_dev), 1,
+                          qdev_get_gpio_in_named(flash1, SSI_GPIO_CS, 0));
 
     /* VirtIO MMIO devices */
     for (i = 0; i < VIRTIO_COUNT; i++) {
