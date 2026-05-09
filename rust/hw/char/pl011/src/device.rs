@@ -102,6 +102,7 @@ pub struct PL011State {
     #[property(rename = "chardev")]
     pub char_frontend: CharFrontend,
     pub regs: BqlRefCell<PL011Registers>,
+    //定义一个bql锁的寄存器
     /// QEMU interrupts
     ///
     /// ```text

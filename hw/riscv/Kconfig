@@ -142,5 +142,5 @@ config GEVICO_G233
     select RISCV_ACLINT
     select SIFIVE_PLIC
     select GEVICO_GPIO
-    select SIFIVE_PWM
+    select GEVICO_PWM
     select PL011

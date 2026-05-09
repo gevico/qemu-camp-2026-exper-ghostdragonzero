@@ -76,6 +76,7 @@ enum {
     VIRT_CLINT,
     VIRT_ACLINT_SSWI,
     VIRT_GPIO0,
+    VIRT_PWM0,
     VIRT_PLIC,
     VIRT_APLIC_M,
     VIRT_APLIC_S,
@@ -97,6 +98,7 @@ enum {
     UART0_IRQ = 10,
     RTC_IRQ = 11,
     GPIO0_IRQ = 2,
+    PWM0_IRQ = 3,
     VIRTIO_IRQ = 1, /* 1 to 8 */
     VIRTIO_COUNT = 8,
     PCIE_IRQ = 0x20, /* 32 to 35 */
