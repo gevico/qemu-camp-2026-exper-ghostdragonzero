@@ -15,6 +15,7 @@
 //! - [`I2CSlave`]: trait for I2C slave devices (send, recv, event)
 //! - [`I2CBus`]: bus that manages slave devices and routes transfers
 
+pub mod bindings;
 pub mod bus;
 pub mod device;
 pub mod register;

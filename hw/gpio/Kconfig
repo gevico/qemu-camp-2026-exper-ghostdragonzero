@@ -10,8 +10,14 @@ config GPIO_MPC8XXX
 config GPIO_PWR
     bool
 
+config SIFIVE_GPIO_C
+    bool
+
 config SIFIVE_GPIO
     bool
+    # The PL011 has both a Rust and a C implementation
+    select SIFIVE_GPIO_C if !HAVE_RUST
+    select X_SIFIVE_GPIO_RUST if HAVE_RUST
 
 config GEVICO_GPIO
     bool

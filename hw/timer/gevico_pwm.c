@@ -274,6 +274,7 @@ static void gevico_pwm_realize(DeviceState *dev, Error **errp)
         timer_init_ns(&s->ch[i].timer, QEMU_CLOCK_VIRTUAL,
                      gevico_pwm_timer_callback, &s->ch[i].timer_data);
     }
+    //是调用qemu提供的timer接口
 
     PWM_DEBUG("Device realized with %d channels\n", GEVICO_PWM_CHANNELS);
 }

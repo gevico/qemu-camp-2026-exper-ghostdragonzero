@@ -39,6 +39,7 @@ static uint32_t gevico_gpio_get_pin_value(GevicoGPIOState *s, int pin)
         return (s->pin_state & pin_mask) != 0;
     }
 }
+//根据要读的哪一位 如果这一位设置成了out就读out的值  如果是in就读in寄存器的值
 
 
 static void gevico_gpio_check_interrupt(GevicoGPIOState *s, int pin)
@@ -96,6 +97,7 @@ static void gevico_gpio_update_state(GevicoGPIOState *s)
 
     /* Check for edge-triggered interrupts on all pins */
     uint32_t changed = old_pin_state ^ s->pin_state;
+    //这个是所有的输出状态有没有改变
     for (int pin = 0; pin < s->ngpio; pin++) {
         uint32_t pin_mask = 1 << pin;
 
@@ -201,6 +203,7 @@ static void gevico_gpio_write(void *opaque, hwaddr offset,
         s->ie = value;
         GPIO_TRACE("IE set to 0x%08" PRIx32 "\n", s->ie);
         gevico_gpio_update_irq(s);
+        //这里为什么要触发中断 这个不是一个中断使能寄存器吗
         break;
 
     case GEVICO_GPIO_IS:
@@ -351,6 +354,7 @@ static void gevico_gpio_realize(DeviceState *dev, Error **errp)
 
     /* Initialize GPIO input lines */
     qdev_init_gpio_in(DEVICE(s), gevico_gpio_set, s->ngpio);
+    //初始化了
 
     GPIO_TRACE("Device realized with %d GPIO pins\n", s->ngpio);
 }

@@ -1,0 +1,5 @@
+config X_PL011_RUST
+    bool
+
+config X_SIFIVE_GPIO_RUST
+    bool

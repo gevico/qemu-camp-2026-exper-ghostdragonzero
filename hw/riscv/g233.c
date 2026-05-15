@@ -45,6 +45,7 @@
 #include "hw/intc/sifive_plic.h"
 #include "hw/misc/sifive_test.h"
 #include "hw/gpio/gevico_gpio.h"
+#include "hw/gpio/sifive_gpio.h"
 #include "hw/timer/gevico_pwm.h"
 #include "hw/watchdog/gevico_wdt.h"
 #include "hw/ssi/gevico_spi.h"
@@ -96,6 +97,7 @@ static const MemMapEntry virt_memmap[] = {
     [VIRT_PWM0] =         {  0x10015000,       0x1000 },
     [VIRT_WDT] =          {  0x10010000,       0x1000 },
     [VIRT_SPI] =          {  0x10018000,       0x1000 },
+    [VIRT_SIFIVE_GPIO] =  {  0x10020000,       0x1000 },
     [VIRT_PCIE_PIO] =     {  0x3000000,       0x10000 },
     [VIRT_IOMMU_SYS] =    {  0x3010000,        0x1000 },
     [VIRT_PLATFORM_BUS] = {  0x4000000,     0x2000000 },
@@ -1801,6 +1803,16 @@ static void virt_machine_init(MachineState *machine)
     sysbus_realize_and_unref(gpio_sysbus, &error_fatal);
     sysbus_mmio_map(gpio_sysbus, 0, s->memmap[VIRT_GPIO0].base);
     sysbus_connect_irq(gpio_sysbus, 0, qdev_get_gpio_in(mmio_irqchip, GPIO0_IRQ));
+
+    /* Create SiFive GPIO device (Rust-based) */
+    DeviceState *sifive_gpio_dev;
+    SysBusDevice *sifive_gpio_sysbus;
+
+    sifive_gpio_dev = qdev_new(TYPE_SIFIVE_GPIO);
+    sifive_gpio_sysbus = SYS_BUS_DEVICE(sifive_gpio_dev);
+    sysbus_realize_and_unref(sifive_gpio_sysbus, &error_fatal);
+    sysbus_mmio_map(sifive_gpio_sysbus, 0, s->memmap[VIRT_SIFIVE_GPIO].base);
+    sysbus_connect_irq(sifive_gpio_sysbus, 0, qdev_get_gpio_in(mmio_irqchip, SIFIVE_GPIO_IRQ));
 
     /* Create Gevico PWM device */
     DeviceState *pwm_dev;

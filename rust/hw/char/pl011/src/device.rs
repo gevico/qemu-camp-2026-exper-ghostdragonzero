@@ -141,6 +141,7 @@ pub struct PL011Class {
 trait PL011Impl: SysBusDeviceImpl + IsA<PL011State> {
     const DEVICE_ID: DeviceId;
 }
+//这里定义了connect_irq等
 
 impl PL011Class {
     fn class_init<T: PL011Impl>(&mut self) {
