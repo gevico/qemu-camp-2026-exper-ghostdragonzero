@@ -11,10 +11,10 @@ pub enum I2CRegister {
     Control = 0x00,
     /// Status register
     Status = 0x04,
-    /// Data register
-    Data = 0x08,
     /// Slave address register
-    Address = 0x0C,
+    Address = 0x08,
+    /// Data register
+    Data = 0x0C,
     /// Clock divider register
     Clock = 0x10,
 }
@@ -25,8 +25,8 @@ impl I2CRegister {
         match offset {
             0x00 => Some(Self::Control),
             0x04 => Some(Self::Status),
-            0x08 => Some(Self::Data),
-            0x0C => Some(Self::Address),
+            0x08 => Some(Self::Address),
+            0x0C => Some(Self::Data),
             0x10 => Some(Self::Clock),
             _ => None,
         }
@@ -53,14 +53,16 @@ pub mod status {
     pub const BUSY: u32 = 0x0001;
     /// ACK received from slave
     pub const ACK: u32 = 0x0002;
+    /// Current command completed
+    pub const DONE: u32 = 0x0004;
     /// Data available in receive buffer
-    pub const RX_AVAIL: u32 = 0x0004;
+    pub const RX_AVAIL: u32 = 0x0008;
     /// Transmit buffer empty
-    pub const TX_EMPTY: u32 = 0x0008;
+    pub const TX_EMPTY: u32 = 0x0010;
     /// Interrupt pending
-    pub const INT_PEND: u32 = 0x0010;
+    pub const INT_PEND: u32 = 0x0020;
     /// Arbitration lost
-    pub const ARB_LOST: u32 = 0x0020;
+    pub const ARB_LOST: u32 = 0x0040;
 }
 
 /// I2C controller register state
@@ -83,7 +85,7 @@ impl I2CRegs {
     pub fn new() -> Self {
         Self {
             control: 0,
-            status: status::TX_EMPTY, // TX buffer is initially empty
+            status: 0,
             data: 0,
             address: 0,
             clock: 0,
@@ -115,6 +117,15 @@ impl I2CRegs {
             self.status |= status::ACK;
         } else {
             self.status &= !status::ACK;
+        }
+    }
+
+    /// Set DONE flag
+    pub fn set_done(&mut self, done: bool) {
+        if done {
+            self.status |= status::DONE;
+        } else {
+            self.status &= !status::DONE;
         }
     }
 }

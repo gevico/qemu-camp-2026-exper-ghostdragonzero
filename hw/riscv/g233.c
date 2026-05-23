@@ -94,6 +94,7 @@ static const MemMapEntry virt_memmap[] = {
     [VIRT_CLINT] =        {  0x2000000,       0x10000 },
     [VIRT_ACLINT_SSWI] =  {  0x2F00000,        0x4000 },
     [VIRT_GPIO0] =        {  0x10012000,       0x100 },
+    [VIRT_I2C] =          {  0x10013000,       0x1000 },
     [VIRT_PWM0] =         {  0x10015000,       0x1000 },
     [VIRT_WDT] =          {  0x10010000,       0x1000 },
     [VIRT_SPI] =          {  0x10018000,       0x1000 },
@@ -1803,6 +1804,16 @@ static void virt_machine_init(MachineState *machine)
     sysbus_realize_and_unref(gpio_sysbus, &error_fatal);
     sysbus_mmio_map(gpio_sysbus, 0, s->memmap[VIRT_GPIO0].base);
     sysbus_connect_irq(gpio_sysbus, 0, qdev_get_gpio_in(mmio_irqchip, GPIO0_IRQ));
+
+    /* Create Rust I2C controller device */
+    DeviceState *i2c_dev;
+    SysBusDevice *i2c_sysbus;
+
+    i2c_dev = qdev_new("gevico.i2c-rust");
+    i2c_sysbus = SYS_BUS_DEVICE(i2c_dev);
+    sysbus_realize_and_unref(i2c_sysbus, &error_fatal);
+    sysbus_mmio_map(i2c_sysbus, 0, s->memmap[VIRT_I2C].base);
+    sysbus_connect_irq(i2c_sysbus, 0, qdev_get_gpio_in(mmio_irqchip, I2C_IRQ));
 
     /* Create SiFive GPIO device (Rust-based) */
     DeviceState *sifive_gpio_dev;

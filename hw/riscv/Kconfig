@@ -146,4 +146,5 @@ config GEVICO_G233
     select GEVICO_PWM
     select GEVICO_WDT
     select GEVICO_SPI
+    select X_I2C_RUST if HAVE_RUST
     select PL011
