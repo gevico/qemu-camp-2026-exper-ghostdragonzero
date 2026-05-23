@@ -80,6 +80,7 @@ enum {
     VIRT_PWM0,
     VIRT_WDT,
     VIRT_SPI,
+    VIRT_RSPI,
     VIRT_SIFIVE_GPIO,  /* New: Rust-based SiFive GPIO */
     VIRT_PLIC,
     VIRT_APLIC_M,
@@ -106,6 +107,7 @@ enum {
     PWM0_IRQ = 3,
     WDT_IRQ = 4,
     SPI_IRQ = 5,
+    RSPI_IRQ = 7,
     SIFIVE_GPIO_IRQ = 12,  /* Rust-based SiFive GPIO, uses mmio_irqchip */
     VIRTIO_IRQ = 1, /* 1 to 8, uses virtio_irqchip */
     VIRTIO_COUNT = 8,

@@ -98,6 +98,7 @@ static const MemMapEntry virt_memmap[] = {
     [VIRT_PWM0] =         {  0x10015000,       0x1000 },
     [VIRT_WDT] =          {  0x10010000,       0x1000 },
     [VIRT_SPI] =          {  0x10018000,       0x1000 },
+    [VIRT_RSPI] =         {  0x10019000,       0x1000 },
     [VIRT_SIFIVE_GPIO] =  {  0x10020000,       0x1000 },
     [VIRT_PCIE_PIO] =     {  0x3000000,       0x10000 },
     [VIRT_IOMMU_SYS] =    {  0x3010000,        0x1000 },
@@ -1854,6 +1855,16 @@ static void virt_machine_init(MachineState *machine)
     sysbus_realize_and_unref(spi_sysbus, &error_fatal);
     sysbus_mmio_map(spi_sysbus, 0, s->memmap[VIRT_SPI].base);
     sysbus_connect_irq(spi_sysbus, 0, qdev_get_gpio_in(mmio_irqchip, SPI_IRQ));
+
+    /* Create Rust SPI controller device */
+    DeviceState *rspi_dev;
+    SysBusDevice *rspi_sysbus;
+
+    rspi_dev = qdev_new("gevico.spi-rust");
+    rspi_sysbus = SYS_BUS_DEVICE(rspi_dev);
+    sysbus_realize_and_unref(rspi_sysbus, &error_fatal);
+    sysbus_mmio_map(rspi_sysbus, 0, s->memmap[VIRT_RSPI].base);
+    sysbus_connect_irq(rspi_sysbus, 0, qdev_get_gpio_in(mmio_irqchip, RSPI_IRQ));
 
     /* Create SPI flash device on CS0 */
     SSIBus *spi_bus;

@@ -147,4 +147,5 @@ config GEVICO_G233
     select GEVICO_WDT
     select GEVICO_SPI
     select X_I2C_RUST if HAVE_RUST
+    select X_SPI_RUST if HAVE_RUST
     select PL011
