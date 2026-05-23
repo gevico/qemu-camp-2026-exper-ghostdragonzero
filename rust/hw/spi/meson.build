@@ -14,7 +14,9 @@ _librspi_rs = static_library(
     [
       'src/lib.rs',
       'src/bindings.rs',
+      'src/bus.rs',
       'src/device.rs',
+      'src/peripheral.rs',
       'src/registers.rs',
     ],
     {'.' : _librspi_bindings_inc_rs},
