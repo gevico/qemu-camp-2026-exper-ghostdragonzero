@@ -19,12 +19,15 @@ pub mod bindings;
 pub mod bus;
 pub mod device;
 pub mod register;
+pub mod slave;
 
 pub use bus::{I2CBus, I2CSlave, I2CEvent};
 pub use device::{I2CController, TYPE_I2C_CONTROLLER};
 #[cfg(not(test))]
 pub use device::I2CControllerState;
 pub use register::{I2CRegs, I2CRegister, control, status};
+#[cfg(not(test))]
+pub use slave::{At24c02State, TYPE_AT24C02_RUST};
 
 // ─── Unit tests ──────────────────────────────────────────────────────
 #[cfg(test)]

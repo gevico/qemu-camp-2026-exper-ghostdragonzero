@@ -37,6 +37,14 @@ pub struct DeviceState(Opaque<bindings::DeviceState>);
 unsafe impl Send for DeviceState {}
 unsafe impl Sync for DeviceState {}
 
+/// A safe wrapper around [`bindings::BusState`].
+#[repr(transparent)]
+#[derive(Debug, common::Wrapper)]
+pub struct BusState(Opaque<bindings::BusState>);
+
+unsafe impl Send for BusState {}
+unsafe impl Sync for BusState {}
+
 /// Trait providing the contents of the `ResettablePhases` struct,
 /// which is part of the QOM `Resettable` interface.
 pub trait ResettablePhasesImpl {
@@ -261,6 +269,14 @@ unsafe impl ObjectType for DeviceState {
 }
 
 qom_isa!(DeviceState: Object);
+
+unsafe impl ObjectType for BusState {
+    type Class = bindings::BusClass;
+    const TYPE_NAME: &'static CStr =
+        unsafe { CStr::from_bytes_with_nul_unchecked(bindings::TYPE_BUS) };
+}
+
+qom_isa!(BusState: Object);
 
 /// Initialization methods take a [`ParentInit`] and can be called as
 /// associated functions.

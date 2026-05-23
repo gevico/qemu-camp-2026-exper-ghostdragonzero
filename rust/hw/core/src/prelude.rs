@@ -1,6 +1,7 @@
 //! Essential types and traits intended for blanket imports.
 
 pub use crate::qdev::Clock;
+pub use crate::qdev::BusState;
 
 pub use crate::qdev::DeviceClassExt;
 pub use crate::qdev::DeviceState;

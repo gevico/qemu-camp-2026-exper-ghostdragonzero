@@ -4,7 +4,7 @@
 //! I2C controller device implementation.
 use std::ffi::CStr;
 #[cfg(not(test))]
-use std::{cell::UnsafeCell, mem::MaybeUninit};
+use std::{cell::UnsafeCell, mem::MaybeUninit, ptr};
 
 #[cfg(not(test))]
 use common::prelude::*;
@@ -15,16 +15,26 @@ use qom::prelude::*;
 #[cfg(not(test))]
 use system::prelude::*;
 
+#[cfg(not(test))]
+use crate::bindings;
+#[cfg(test)]
 use crate::bus::{I2CBus, I2CEvent, I2CSlave};
+#[cfg(not(test))]
+use crate::bus::I2CBus;
 use crate::register::{control, status, I2CRegs, I2CRegister};
+#[cfg(not(test))]
+use crate::slave::TYPE_AT24C02_RUST;
 
 /// I2C controller device type name
 pub const TYPE_I2C_CONTROLLER: &CStr = c"gevico.i2c-rust";
 
 const AT24C02_ADDR: u8 = 0x50;
+#[cfg(test)]
 const AT24C02_SIZE: usize = 256;
+#[cfg(test)]
 const AT24C02_PAGE_SIZE: u8 = 8;
 
+#[cfg(test)]
 #[derive(Debug)]
 struct At24c02 {
     addr: u8,
@@ -35,6 +45,7 @@ struct At24c02 {
     page_offset: u8,
 }
 
+#[cfg(test)]
 impl At24c02 {
     fn new(addr: u8) -> Self {
         Self {
@@ -48,6 +59,7 @@ impl At24c02 {
     }
 }
 
+#[cfg(test)]
 impl I2CSlave for At24c02 {
     fn address(&self) -> u8 {
         self.addr
@@ -89,11 +101,15 @@ pub struct I2CController {
     /// Hardware registers
     pub regs: I2CRegs,
     /// I2C bus managed by this controller
+    #[cfg(test)]
     pub bus: I2CBus,
+    #[cfg(not(test))]
+    pub bus: *mut I2CBus,
     /// Current transfer state
     pub transfer_active: bool,
 }
 
+#[cfg(test)]
 impl I2CController {
     /// Create a new I2C controller
     pub fn new() -> Self {
@@ -240,6 +256,124 @@ impl I2CController {
     }
 }
 
+#[cfg(not(test))]
+impl I2CController {
+    /// Create a new I2C controller attached to a QEMU I2C bus.
+    pub fn new(bus: *mut I2CBus) -> Self {
+        Self {
+            regs: I2CRegs::new(),
+            bus,
+            transfer_active: false,
+        }
+    }
+
+    /// Reset the controller registers without destroying the QEMU bus.
+    pub fn reset(&mut self) {
+        self.regs = I2CRegs::new();
+        self.transfer_active = false;
+    }
+
+    /// Handle MMIO read operation
+    pub fn read(&mut self, offset: u32) -> u32 {
+        match I2CRegister::from_offset(offset) {
+            Some(I2CRegister::Control) => self.regs.control,
+            Some(I2CRegister::Status) => self.regs.status,
+            Some(I2CRegister::Data) => self.regs.data,
+            Some(I2CRegister::Address) => self.regs.address,
+            Some(I2CRegister::Clock) => self.regs.clock,
+            None => 0xFFFFFFFF,
+        }
+    }
+
+    /// Handle MMIO write operation through QEMU's I2C bus core.
+    pub fn write(&mut self, offset: u32, value: u32) {
+        match I2CRegister::from_offset(offset) {
+            Some(I2CRegister::Control) => self.write_control(value),
+            Some(I2CRegister::Status) => {
+                if value & status::INT_PEND != 0 {
+                    self.regs.status &= !status::INT_PEND;
+                }
+            }
+            Some(I2CRegister::Data) => {
+                self.regs.data = value & 0xFF;
+                self.regs.status &= !status::RX_AVAIL;
+            }
+            Some(I2CRegister::Address) => {
+                if !self.regs.is_busy() {
+                    self.regs.address = value & 0x7F;
+                }
+            }
+            Some(I2CRegister::Clock) => {
+                self.regs.clock = value & 0xFFFF;
+            }
+            None => {}
+        }
+    }
+
+    fn write_control(&mut self, value: u32) {
+        let old_control = self.regs.control;
+        self.regs.control = value;
+        self.regs.set_done(false);
+        self.regs.status &= !status::INT_PEND;
+
+        let was_enabled = old_control & control::ENABLE != 0;
+        let is_enabled = value & control::ENABLE != 0;
+
+        if !was_enabled && is_enabled {
+            self.regs.status |= status::TX_EMPTY;
+        } else if was_enabled && !is_enabled {
+            if self.transfer_active {
+                self.bus_mut().end_transfer();
+            }
+            self.transfer_active = false;
+            self.regs.set_busy(false);
+        }
+
+        if self.regs.is_enabled() {
+            if value & control::START != 0 {
+                let slave_addr = (self.regs.address & 0x7F) as u8;
+                let is_read = value & control::READ != 0;
+                let ret = self.bus_mut().start_transfer(slave_addr, is_read);
+                self.regs.set_ack(ret == 0);
+                self.transfer_active = ret == 0;
+                self.regs.set_busy(ret == 0);
+            } else if self.transfer_active && value & control::STOP == 0 {
+                if value & control::READ != 0 {
+                    let data = self.bus_mut().recv();
+                    self.regs.data = data as u32;
+                    self.regs.status |= status::RX_AVAIL;
+                    self.regs.set_ack(true);
+                } else {
+                    let data = (self.regs.data & 0xFF) as u8;
+                    let ret = self.bus_mut().send(data);
+                    self.regs.set_ack(ret == 0);
+                    if ret != 0 {
+                        self.bus_mut().end_transfer();
+                        self.transfer_active = false;
+                        self.regs.set_busy(false);
+                    }
+                }
+            }
+
+            if value & control::STOP != 0 && self.transfer_active {
+                self.bus_mut().end_transfer();
+                self.transfer_active = false;
+                self.regs.set_busy(false);
+            }
+        }
+
+        self.regs.set_done(true);
+        if value & control::INT_EN != 0 {
+            self.regs.status |= status::INT_PEND;
+        }
+    }
+
+    fn bus_mut(&self) -> &I2CBus {
+        unsafe { &*self.bus }
+    }
+}
+
+#[cfg(test)]
 impl Default for I2CController {
     fn default() -> Self {
         Self::new()
@@ -254,6 +388,7 @@ pub struct I2CControllerState {
     pub iomem: MemoryRegion,
     pub irq: InterruptSource,
     pub controller: UnsafeCell<MaybeUninit<I2CController>>,
+    pub bus: *mut I2CBus,
 }
 
 // SAFETY: QEMU invokes this simple MMIO device under the Big QEMU Lock.
@@ -315,8 +450,20 @@ impl I2CControllerState {
             0x1000,
         );
         uninit_field_mut!(*this, irq).write(InterruptSource::default());
+        let dev: &mut DeviceState = unsafe { this.upcast_mut() };
+        let bus = unsafe { I2CBus::init_bus(hwcore::DeviceState::as_mut_ptr(dev), c"i2c") };
+        let slave = unsafe { hwcore::bindings::qdev_new(TYPE_AT24C02_RUST.as_ptr()).cast() };
+        unsafe {
+            bindings::i2c_slave_set_address(slave, AT24C02_ADDR);
+            bindings::i2c_slave_realize_and_unref(
+                slave,
+                bus.cast(),
+                ptr::addr_of_mut!(util::bindings::error_abort),
+            );
+        }
+        uninit_field_mut!(*this, bus).write(bus);
         uninit_field_mut!(*this, controller)
-            .write(UnsafeCell::new(MaybeUninit::new(I2CController::new())));
+            .write(UnsafeCell::new(MaybeUninit::new(I2CController::new(bus))));
     }
 
     pub fn post_init(&self) {

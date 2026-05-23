@@ -1,66 +1,61 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-//pub use crate::{I2CBus, I2CEvent, I2CSlave};
-// ─── I2C Event ───────────────────────────────────────────────────────
+//! I2C bus and slave abstractions.
+//!
+//! The non-test implementation mirrors QEMU's C I2C model from
+//! `include/hw/i2c/i2c.h`: an `I2CBus` is a `BusState`, an `I2CSlave`
+//! is a `DeviceState`, and concrete Rust slaves implement virtual
+//! callbacks equivalent to `I2CSlaveClass`.
 
-/// I2C bus events, mirroring `enum i2c_event` from upstream C code.
+#[cfg(not(test))]
+use std::{
+    ffi::CStr,
+    os::raw::c_int,
+    ptr::{addr_of_mut, NonNull},
+};
+
+#[cfg(not(test))]
+use common::Opaque;
+#[cfg(not(test))]
+use hwcore::prelude::*;
+#[cfg(not(test))]
+use qom::prelude::*;
+
+#[cfg(not(test))]
+use crate::bindings;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum I2CEvent {
-    /// Master requests to read from slave
     StartRecv,
-    /// Master requests to write to slave
     StartSend,
-    /// Transfer finished
+    #[cfg(not(test))]
+    StartSendAsync,
     Finish,
-    /// Master NACKed a received byte
     Nack,
 }
 
-// ─── I2C Slave trait ─────────────────────────────────────────────────
-
-/// Trait representing an I2C slave device on the bus.
-///
-/// This mirrors `I2CSlaveClass` from upstream QEMU:
-/// - `address()`: the 7-bit slave address
-/// - `event()`: notification of bus state changes (START/FINISH/NACK)
-/// - `send()`: master-to-slave data byte, returns 0 for ACK, non-zero for NACK
-/// - `recv()`: slave-to-master data byte
+#[cfg(test)]
 pub trait I2CSlave {
-    /// Return the 7-bit I2C address of this device.
     fn address(&self) -> u8;
 
-    /// Notify the slave of a bus state change.
-    ///
-    /// For `StartRecv`/`StartSend`, return 0 to ACK or non-zero to NACK.
-    /// For `Finish`/`Nack`, the return value is ignored.
     fn event(&mut self, event: I2CEvent) -> i32 {
         let _ = event;
         0
     }
 
-    /// Master sends a data byte to this slave.
-    /// Returns 0 for ACK, non-zero for NACK.
     fn send(&mut self, data: u8) -> i32;
 
-    /// Slave returns a data byte to the master.
     fn recv(&mut self) -> u8;
 }
 
-// ─── I2C Bus ─────────────────────────────────────────────────────────
-
-/// A simple I2C bus that manages a list of slave devices.
-///
-/// Mirrors `I2CBus` from upstream QEMU. The bus holds references to
-/// attached slaves and routes transfers based on 7-bit address matching.
-#[allow(dead_code)]
+#[cfg(test)]
 pub struct I2CBus {
     devices: Vec<Box<dyn I2CSlave>>,
-    /// Address of the currently selected slave (set by `start_transfer`)
     current_addr: Option<u8>,
-    /// Transfer direction: true = recv (slave→master), false = send (master→slave)
     is_recv: bool,
 }
 
+#[cfg(test)]
 impl std::fmt::Debug for I2CBus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("I2CBus")
@@ -71,8 +66,8 @@ impl std::fmt::Debug for I2CBus {
     }
 }
 
+#[cfg(test)]
 impl I2CBus {
-    /// Create an empty bus with no attached devices.
     pub fn new() -> Self {
         Self {
             devices: Vec::new(),
@@ -81,112 +76,71 @@ impl I2CBus {
         }
     }
 
-    /// Attach a slave device to the bus.
     pub fn attach(&mut self, device: Box<dyn I2CSlave>) {
-        // TODO: push the device onto the bus
         self.devices.push(device);
     }
 
-    /// Return the number of devices on the bus.
     pub fn device_count(&self) -> usize {
-        // TODO: return actual count
         self.devices.len()
     }
 
-    /// Check if the bus is busy (a transfer is in progress).
     pub fn is_busy(&self) -> bool {
         self.current_addr.is_some()
     }
 
-    /// Start a transfer to the slave at `address`.
-    ///
-    /// If `is_recv` is true, the master wants to read (START_RECV).
-    /// If `is_recv` is false, the master wants to write (START_SEND).
-    ///
-    /// Returns 0 on success (slave ACKed), -1 if no slave responds (NACK).
-    ///
-    /// This mirrors `i2c_start_transfer()` from upstream.
     pub fn start_transfer(&mut self, address: u8, is_recv: bool) -> i32 {
-        // TODO: find a device matching _address, call its event()
-        // with StartRecv or StartSend. If ACKed, store current_addr
-        // and is_recv. Return 0 on ACK, -1 on NACK.
         for device in &mut self.devices {
-          if device.address() == address {
-              // 确定事件类型
-              let event = if is_recv {
-                  I2CEvent::StartRecv
-              } else {
-                  I2CEvent::StartSend
-              };
+            if device.address() == address {
+                let event = if is_recv {
+                    I2CEvent::StartRecv
+                } else {
+                    I2CEvent::StartSend
+                };
 
-              // 调用设备的 event 方法
-              let ret = device.event(event);
-
-              // 如果设备 ACK（返回 0），保存当前传输状态
-              if ret == 0 {
-                  self.current_addr = Some(address);
-                  self.is_recv = is_recv;
-                  return 0; // ACK
-              }
-          }
-      }
+                if device.event(event) == 0 {
+                    self.current_addr = Some(address);
+                    self.is_recv = is_recv;
+                    return 0;
+                }
+            }
+        }
         -1
     }
 
-    /// End the current transfer, sending Finish event to the active slave.
-    ///
-    /// Mirrors `i2c_end_transfer()` from upstream.
     pub fn end_transfer(&mut self) {
-        // TODO: send Finish event to the current slave, clear current_addr
         if let Some(addr) = self.current_addr {
-          // 找到当前活跃的设备并发送 Finish 事件
-          for device in &mut self.devices {
-              if device.address() == addr {
-                  device.event(I2CEvent::Finish);
-                  break;
-              }
-          }
-          // 清除当前地址
-          self.current_addr = None;
-      }
+            for device in &mut self.devices {
+                if device.address() == addr {
+                    device.event(I2CEvent::Finish);
+                    break;
+                }
+            }
+            self.current_addr = None;
+        }
     }
 
-    /// Send a data byte from master to the current slave.
-    ///
-    /// Returns 0 for ACK, non-zero for NACK.
-    /// Mirrors `i2c_send()` from upstream.
     pub fn send(&mut self, data: u8) -> i32 {
-        // TODO: call send() on the current slave
-      if let Some(addr) = self.current_addr {
-          for device in &mut self.devices {
-              if device.address() == addr {
-                  return device.send(data);
-              }
-          }
-      }
-      -1
+        if let Some(addr) = self.current_addr {
+            for device in &mut self.devices {
+                if device.address() == addr {
+                    return device.send(data);
+                }
+            }
+        }
+        -1
     }
 
-    /// Receive a data byte from the current slave to master.
-    ///
-    /// Mirrors `i2c_recv()` from upstream.
     pub fn recv(&mut self) -> u8 {
-        // TODO: call recv() on the current slave
         if let Some(addr) = self.current_addr {
-          for device in &mut self.devices {
-              if device.address() == addr {
-                  return device.recv();
-              }
-          }
+            for device in &mut self.devices {
+                if device.address() == addr {
+                    return device.recv();
+                }
+            }
         }
         0xFF
     }
 
-    // ── Convenience helpers (used by unit tests) ──
-
-    /// Perform a complete write transfer: START_SEND + send bytes + FINISH.
-    ///
-    /// Returns true on ACK, false on NACK.
     pub fn transfer_write(&mut self, addr: u8, data: &[u8]) -> bool {
         if self.start_transfer(addr, false) != 0 {
             return false;
@@ -201,9 +155,6 @@ impl I2CBus {
         true
     }
 
-    /// Perform a complete read transfer: START_RECV + recv `len` bytes + FINISH.
-    ///
-    /// Returns None on NACK, Some(bytes) on success.
     pub fn transfer_read(&mut self, addr: u8, len: usize) -> Option<Vec<u8>> {
         if self.start_transfer(addr, true) != 0 {
             return None;
@@ -215,4 +166,172 @@ impl I2CBus {
         self.end_transfer();
         Some(result)
     }
+}
+
+#[cfg(test)]
+impl Default for I2CBus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(not(test))]
+impl I2CEvent {
+    fn from_raw(event: bindings::i2c_event) -> Self {
+        match event {
+            bindings::I2C_START_RECV => Self::StartRecv,
+            bindings::I2C_START_SEND => Self::StartSend,
+            bindings::I2C_START_SEND_ASYNC => Self::StartSendAsync,
+            bindings::I2C_FINISH => Self::Finish,
+            bindings::I2C_NACK => Self::Nack,
+            _ => Self::Nack,
+        }
+    }
+}
+
+#[cfg(not(test))]
+#[repr(transparent)]
+#[derive(Debug, common::Wrapper)]
+pub struct I2CBus(Opaque<bindings::I2CBus>);
+
+#[cfg(not(test))]
+unsafe impl Send for I2CBus {}
+#[cfg(not(test))]
+unsafe impl Sync for I2CBus {}
+
+#[cfg(not(test))]
+unsafe impl ObjectType for I2CBus {
+    type Class = hwcore::bindings::BusClass;
+    const TYPE_NAME: &'static CStr =
+        unsafe { CStr::from_bytes_with_nul_unchecked(bindings::TYPE_I2C_BUS) };
+}
+
+#[cfg(not(test))]
+qom_isa!(I2CBus: BusState, Object);
+
+#[cfg(not(test))]
+impl I2CBus {
+    pub unsafe fn init_bus(parent: *mut hwcore::bindings::DeviceState, name: &CStr) -> *mut Self {
+        unsafe { bindings::i2c_init_bus(parent, name.as_ptr()).cast() }
+    }
+
+    pub fn is_busy(&self) -> bool {
+        unsafe { bindings::i2c_bus_busy(self.as_mut_ptr()) != 0 }
+    }
+
+    pub fn start_transfer(&self, address: u8, is_recv: bool) -> i32 {
+        unsafe { bindings::i2c_start_transfer(self.as_mut_ptr(), address, is_recv) }
+    }
+
+    pub fn send(&self, data: u8) -> i32 {
+        unsafe { bindings::i2c_send(self.as_mut_ptr(), data) }
+    }
+
+    pub fn recv(&self) -> u8 {
+        unsafe { bindings::i2c_recv(self.as_mut_ptr()) }
+    }
+
+    pub fn end_transfer(&self) {
+        unsafe { bindings::i2c_end_transfer(self.as_mut_ptr()) }
+    }
+
+    pub fn nack(&self) {
+        unsafe { bindings::i2c_nack(self.as_mut_ptr()) }
+    }
+}
+
+#[cfg(not(test))]
+#[repr(transparent)]
+#[derive(Debug, common::Wrapper)]
+pub struct I2CSlave(Opaque<bindings::I2CSlave>);
+
+#[cfg(not(test))]
+unsafe impl Send for I2CSlave {}
+#[cfg(not(test))]
+unsafe impl Sync for I2CSlave {}
+
+#[cfg(not(test))]
+qom_isa!(I2CSlave: DeviceState, Object);
+
+#[cfg(not(test))]
+#[repr(transparent)]
+pub struct I2CSlaveClass(bindings::I2CSlaveClass);
+
+#[cfg(not(test))]
+pub trait I2CSlaveImpl: DeviceImpl + IsA<I2CSlave> {
+    fn send(&self, data: u8) -> i32;
+    fn recv(&self) -> u8;
+
+    fn event(&self, event: I2CEvent) -> i32 {
+        let _ = event;
+        0
+    }
+}
+
+#[cfg(not(test))]
+unsafe extern "C" fn rust_i2c_slave_send<T: I2CSlaveImpl>(
+    dev: *mut bindings::I2CSlave,
+    data: u8,
+) -> c_int {
+    let state = NonNull::new(dev).unwrap().cast::<T>();
+    T::send(unsafe { state.as_ref() }, data) as c_int
+}
+
+#[cfg(not(test))]
+unsafe extern "C" fn rust_i2c_slave_recv<T: I2CSlaveImpl>(dev: *mut bindings::I2CSlave) -> u8 {
+    let state = NonNull::new(dev).unwrap().cast::<T>();
+    T::recv(unsafe { state.as_ref() })
+}
+
+#[cfg(not(test))]
+unsafe extern "C" fn rust_i2c_slave_event<T: I2CSlaveImpl>(
+    dev: *mut bindings::I2CSlave,
+    event: bindings::i2c_event,
+) -> c_int {
+    let state = NonNull::new(dev).unwrap().cast::<T>();
+    T::event(unsafe { state.as_ref() }, I2CEvent::from_raw(event)) as c_int
+}
+
+#[cfg(not(test))]
+unsafe extern "C" fn rust_i2c_slave_match_and_add(
+    candidate: *mut bindings::I2CSlave,
+    address: u8,
+    broadcast: bool,
+    current_devs: *mut bindings::I2CNodeList,
+) -> bool {
+    unsafe {
+        if (*candidate).address != address && !broadcast {
+            return false;
+        }
+
+        let node = glib_sys::g_malloc(std::mem::size_of::<bindings::I2CNode>())
+            .cast::<bindings::I2CNode>();
+        (*node).elt = candidate;
+        (*node).next.le_next = (*current_devs).lh_first;
+        if !(*current_devs).lh_first.is_null() {
+            (*(*current_devs).lh_first).next.le_prev = addr_of_mut!((*node).next.le_next);
+        }
+        (*current_devs).lh_first = node;
+        (*node).next.le_prev = addr_of_mut!((*current_devs).lh_first);
+        true
+    }
+}
+
+#[cfg(not(test))]
+impl I2CSlaveClass {
+    pub fn class_init<T: I2CSlaveImpl>(&mut self) {
+        self.0.parent_class.class_init::<T>();
+        self.0.parent_class.bus_type = bindings::TYPE_I2C_BUS.as_ptr().cast();
+        self.0.send = Some(rust_i2c_slave_send::<T>);
+        self.0.recv = Some(rust_i2c_slave_recv::<T>);
+        self.0.event = Some(rust_i2c_slave_event::<T>);
+        self.0.match_and_add = Some(rust_i2c_slave_match_and_add);
+    }
+}
+
+#[cfg(not(test))]
+unsafe impl ObjectType for I2CSlave {
+    type Class = I2CSlaveClass;
+    const TYPE_NAME: &'static CStr =
+        unsafe { CStr::from_bytes_with_nul_unchecked(bindings::TYPE_I2C_SLAVE) };
 }
